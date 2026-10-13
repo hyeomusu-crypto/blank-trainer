@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>단답형 암기 마스터 (태블릿/아이패드 완벽 지원)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        };
+    </script>
+    <!-- FontAwesome & Libraries -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        /* 가려진 빈칸 스타일 - 터치 타깃 확보 및 시각적 안정성 */
+        .cloze-blank {
+            display: inline-block;
+            border-radius: 0.375rem;
+            padding: 0.15rem 0.55rem;
+            margin: 0.1rem 0.15rem;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+            -webkit-user-select: none;
+            position: relative;
+            vertical-align: baseline;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        /* 가림 상태 (Masked) */
+        .cloze-blank.masked {
+            background-color: #0f172a;
+            color: transparent !important;
+            border: 1.5px dashed #475569;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.25);
+        }
+        .dark .cloze-blank.masked {
+            background-color: #020617;
+            border-color: #334155;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.5);
+        }
+        .cloze-blank.masked::after {
+            content: "···";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: #94a3b8;
+            font-size: 0.85rem;
+            letter-spacing: 2px;
+            pointer-events: none;
+        }
+
+        /* 정답 공개 상태 (Revealed) */
+        .cloze-blank.revealed {
+            background-color: #e0e7ff;
+            color: #4338ca !important;
+            border: 1.5px solid #818cf8;
+        }
+        .dark .cloze-blank.revealed {
+            background-color: #312e81;
+            color: #c7d2fe !important;
+            border-color: #6366f1;
+        }
+
+        /* 모바일/패드 문장 카드 내부 텍스트 선택 허용 */
+        .sentence-text {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+        }
+
+        /* 토스트 알림 애니메이션 */
+        @keyframes toastSlide {
+            0% { transform: translate(-50%, 20px); opacity: 0; }
+            15% { transform: translate(-50%, 0); opacity: 1; }
+            85% { transform: translate(-50%, 0); opacity: 1; }
+            100% { transform: translate(-50%, -20px); opacity: 0; }
+        }
+        .toast-active {
+            animation: toastSlide 2.3s ease forwards;
+        }
+
+        /* 선택 영역 위 퀵 플로팅 버튼 */
+        #selectionTooltip {
+            position: absolute;
+            z-index: 60;
+            display: none;
+            transform: translate(-50%, -100%);
+            margin-top: -10px;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.25));
+        }
+        #selectionTooltip::after {
+            content: "";
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px 6px 0;
+            border-style: solid;
+            border-color: #4f46e5 transparent transparent;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col pb-28 transition-colors duration-200">
+
+    <!-- Selection Floating Tooltip (패드에서 범위 지정 시 머리 위에 즉시 등장) -->
+    <div id="selectionTooltip">
+        <button id="tooltipMaskBtn" class="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold py-1.5 px-3.5 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap transition">
+            <i class="fa-solid fa-highlighter"></i> 이 부분 가리기
+        </button>
+    </div>
+
+    <!-- Header Navigation -->
+    <header class="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary-600 to-indigo-400 flex items-center justify-center text-white shadow-md shadow-primary-500/20">
+                    <i class="fa-solid fa-graduation-cap text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+                        단답형 암기 마스터
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 font-semibold">iPad/터치 완벽 최적화</span>
+                    </h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">꾹 눌러 블록 지정 시 즉시 가리기 · 개수 무제한</p>
+                </div>
+            </div>
+
+            <!-- Header Theme & Action Buttons -->
+            <div class="flex items-center space-x-2">
+                <button id="themeToggleBtn" aria-label="다크 모드 전환" class="p-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition">
+                    <i class="fa-solid fa-moon dark:hidden"></i>
+                    <i class="fa-solid fa-sun hidden dark:inline-block"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Guide Banner -->
+    <div class="max-w-6xl mx-auto px-4 mt-4 w-full">
+        <div class="p-4 rounded-2xl bg-indigo-50/70 dark:bg-slate-900 border border-indigo-100 dark:border-indigo-900/40 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl flex-shrink-0">
+                    <i class="fa-solid fa-hand-pointer text-lg"></i>
+                </div>
+                <div>
+                    <span class="font-bold text-sm text-slate-900 dark:text-white">아이패드/태블릿 터치 팁</span>
+                    <p class="text-xs text-slate-600 dark:text-slate-400 mt-0.5">손가락 또는 펜슬로 문구를 <b>꾹 눌러 드래그</b>하면 바로 가리기 버튼이 뜹니다.</p>
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <div class="bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1.5">
+                    <span class="text-slate-500">한 번 터치:</span>
+                    <span class="font-bold text-indigo-600 dark:text-indigo-400">정답 열기/닫기</span>
+                </div>
+                <div class="bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1.5">
+                    <span class="text-slate-500">두 번 톡톡(더블탭):</span>
+                    <span class="font-bold text-indigo-600 dark:text-indigo-400">단어 가리기 / 복원</span>
+                </div>
+                <div class="bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1.5">
+                    <span class="text-slate-500">PC 단축키:</span>
+                    <kbd class="px-1 rounded bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600">Ctrl+B</kbd>
+                    <span class="text-slate-400">/</span>
+                    <kbd class="px-1 rounded bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600">Alt+A</kbd>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-6xl mx-auto px-4 py-4 w-full flex-grow flex flex-col gap-4">
+
+        <!-- Input Section: Tabs (Text vs File) -->
+        <section class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm">
+            <div class="flex items-center space-x-2 border-b border-slate-200 dark:border-slate-800 pb-3 mb-4">
+                <button id="tabTextBtn" class="px-4 py-2 text-sm font-semibold rounded-xl bg-primary-50 dark:bg-primary-950/60 text-primary-600 dark:text-primary-400 flex items-center gap-2 transition">
+                    <i class="fa-solid fa-keyboard"></i> 텍스트 직접 입력
+                </button>
+                <button id="tabFileBtn" class="px-4 py-2 text-sm font-semibold rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition">
+                    <i class="fa-solid fa-file-arrow-up"></i> PDF / PPTX 업로드
+                </button>
+            </div>
+
+            <!-- Tab 1: Text Input -->
+            <div id="tabTextContent" class="block">
+                <textarea id="rawInput" rows="4" placeholder="암기할 문장을 한 줄씩 입력해주세요.&#10;예시: 대한민국의 수도는 서울특별시이다.&#10;광합성은 엽록체에서 일어나며 빛 에너지를 화학 에너지로 전환한다." 
+                    class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition resize-y"></textarea>
+
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button id="cleanInputBtn" class="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1.5 transition">
+                            <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i> 띄어쓰기 & 구두점 자동 정리
+                        </button>
+                        <button id="loadSampleBtn" class="px-3 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1.5 transition">
+                            <i class="fa-solid fa-lightbulb text-indigo-500"></i> 예시 불러오기
+                        </button>
+                        <button id="clearInputBtn" class="px-3 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30 text-slate-500 transition">
+                            <i class="fa-regular fa-trash-can"></i> 비우기
+                        </button>
+                    </div>
+
+                    <button id="addSentencesBtn" class="px-5 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold text-sm flex items-center gap-2 shadow-sm transition active:scale-95">
+                        <i class="fa-solid fa-plus"></i> 문장 등록하기
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tab 2: File Upload -->
+            <div id="tabFileContent" class="hidden">
+                <div id="fileDropZone" class="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-primary-500 rounded-2xl p-7 flex flex-col items-center justify-center text-center cursor-pointer bg-slate-50/50 dark:bg-slate-950/50 transition">
+                    <input type="file" id="fileInput" accept=".pdf, .pptx" class="hidden" />
+                    <div class="w-13 h-13 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-primary-600 dark:text-primary-400 flex items-center justify-center text-2xl mb-2.5 shadow-inner">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                    </div>
+                    <p class="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                        PDF 또는 PPTX 파일을 탭하여 선택하세요
+                    </p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                        문서의 텍스트를 자동 파싱하여 문장 단위로 추가합니다.
+                    </p>
+                </div>
+
+                <div id="parsingIndicator" class="hidden mt-4 p-3.5 rounded-xl bg-primary-50 dark:bg-primary-950/40 border border-primary-200 dark:border-primary-900 text-xs font-semibold text-primary-700 dark:text-primary-300 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-circle-notch fa-spin text-base"></i>
+                    <span id="parsingText">문서에서 문장을 추출하는 중입니다...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Controls & Statistics Toolbar -->
+        <section class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div class="flex items-center space-x-3 text-sm">
+                <span class="text-slate-700 dark:text-slate-200 font-semibold">
+                    문장 수: <span id="itemCount" class="text-primary-600 dark:text-primary-400 font-bold">0</span>개
+                </span>
+                <span class="text-slate-300 dark:text-slate-700">|</span>
+                <span class="text-slate-600 dark:text-slate-300">
+                    가려진 빈칸: <span id="blankCount" class="font-bold text-indigo-600 dark:text-indigo-400">0</span>개
+                </span>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="relative">
+                    <select id="sortSelect" class="text-xs py-2 pl-3 pr-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer appearance-none">
+                        <option value="none">기본 등록순</option>
+                        <option value="asc">가나다순 (오름차순)</option>
+                        <option value="desc">가나다 역순 (내림차순)</option>
+                        <option value="length-asc">글자수 짧은순</option>
+                        <option value="length-desc">글자수 긴순</option>
+                    </select>
+                    <i class="fa-solid fa-chevron-down text-slate-400 text-[10px] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                </div>
+
+                <button id="shuffleBtn" class="px-3 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-shuffle text-emerald-500"></i> 무작위 셔플
+                </button>
+
+                <button id="toggleAllBlanksBtn" class="px-3.5 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-eye text-primary-500" id="toggleIcon"></i>
+                    <span id="toggleText">빈칸 모두 열기</span>
+                </button>
+
+                <button id="clearAllSentencesBtn" class="px-3 py-2 text-xs font-medium rounded-xl border border-rose-200 dark:border-rose-900/50 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-trash-can"></i> 전체 비우기
+                </button>
+            </div>
+        </section>
+
+        <!-- Sentence Cards Container -->
+        <section id="sentenceContainer" class="flex flex-col gap-3 min-h-[200px]">
+            <!-- Rendered dynamically -->
+        </section>
+
+    </main>
+
+    <!-- iPad/Tablet용 고정 하단 퀵 플로팅 바 (선택 영역 있을 때 시각적 하이라이트) -->
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/90 dark:bg-slate-800/95 backdrop-blur-md border border-slate-700/60 text-white rounded-full px-4 py-2.5 shadow-2xl flex items-center space-x-3 transition-all duration-200">
+        <button id="bottomMaskBtn" class="px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-xs flex items-center gap-2 shadow transition">
+            <i class="fa-solid fa-highlighter text-amber-300"></i>
+            <span id="bottomMaskLabel">선택 영역 가리기</span>
+        </button>
+        <span class="w-[1px] h-4 bg-slate-700"></span>
+        <button id="bottomToggleBtn" class="px-3 py-2 rounded-full hover:bg-slate-800 dark:hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-eye"></i> 전체 토글
+        </button>
+    </div>
+
+    <!-- Edit Modal Dialog -->
+    <div id="editModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 transition">
+            <h3 class="text-base font-bold text-slate-900 dark:text-white mb-1.5 flex items-center gap-2">
+                <i class="fa-solid fa-pen-nib text-primary-600"></i> 문장 내용 수정
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">내용을 자유롭게 수정하세요. 빈칸 표시는 텍스트로 보존됩니다.</p>
+            
+            <textarea id="editInput" rows="4" class="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 transition resize-y"></textarea>
+
+            <div class="mt-4 flex items-center justify-between">
+                <button id="modalCleanBtn" class="px-3 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i> 띄어쓰기 정제
+                </button>
+                <div class="flex items-center space-x-2">
+                    <button id="cancelEditBtn" class="px-4 py-2 text-xs font-medium rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition">
+                        취소
+                    </button>
+                    <button id="saveEditBtn" class="px-4 py-2 text-xs font-semibold rounded-xl bg-primary-600 hover:bg-primary-700 text-white shadow transition">
+                        수정 저장
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed top-5 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-slate-900/95 dark:bg-white/95 text-white dark:text-slate-900 text-xs font-medium shadow-xl pointer-events-none opacity-0 z-50 flex items-center gap-2">
+        <i class="fa-solid fa-circle-check text-emerald-400 dark:text-emerald-600"></i>
+        <span id="toastMsg">알림 메시지</span>
+    </div>
+
+    <script>
+        // Setup PDF.js Worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // State
+        let sentences = [];
+        let editingId = null;
+        let allRevealed = false;
+        let lastTouchTime = 0; // 태블릿 더블 탭 정밀 측정용
+
+        const SAMPLE_DATA = [
+            "수요예측은 미래의 수요에 대한 추정치이며 계획과 의사결정을 위한 근거가 된다.",
+            "좋은 수요예측은 재고 감축, 품절 감소, 보다 평준화된 생산계획, 원가 절감, 고객서비스 개선 등을 얻을 수 있다.",
+            "정성적 예측기법은 직관이나 판단에 의존하며 경영진 의견, 델파이 기법, 영업진 예측 합성, 소비자 조사가 있다.",
+            "시계열예측의 4가지 구성요소는 추세 변동, 순환 변동, 계절 변동, 우연 변동이다.",
+            "협력적 계획·예측·보충전략(CPFR)의 구현에 있어서 3대 과제는 기업 내부 변화의 어려움, 비용, 신뢰이다."
+        ];
+
+        // Element Selectors
+        const rawInput = document.getElementById('rawInput');
+        const addSentencesBtn = document.getElementById('addSentencesBtn');
+        const cleanInputBtn = document.getElementById('cleanInputBtn');
+        const clearInputBtn = document.getElementById('clearInputBtn');
+        const loadSampleBtn = document.getElementById('loadSampleBtn');
+        const sentenceContainer = document.getElementById('sentenceContainer');
+        const sortSelect = document.getElementById('sortSelect');
+        const shuffleBtn = document.getElementById('shuffleBtn');
+        const toggleAllBlanksBtn = document.getElementById('toggleAllBlanksBtn');
+        const toggleIcon = document.getElementById('toggleIcon');
+        const toggleText = document.getElementById('toggleText');
+        const clearAllSentencesBtn = document.getElementById('clearAllSentencesBtn');
+        const itemCount = document.getElementById('itemCount');
+        const blankCount = document.getElementById('blankCount');
+        const themeToggleBtn = document.getElementById('themeToggleBtn');
+
+        // Selection & Floating UI
+        const selectionTooltip = document.getElementById('selectionTooltip');
+        const tooltipMaskBtn = document.getElementById('tooltipMaskBtn');
+        const bottomMaskBtn = document.getElementById('bottomMaskBtn');
+        const bottomMaskLabel = document.getElementById('bottomMaskLabel');
+        const bottomToggleBtn = document.getElementById('bottomToggleBtn');
+
+        // Tab Selectors
+        const tabTextBtn = document.getElementById('tabTextBtn');
+        const tabFileBtn = document.getElementById('tabFileBtn');
+        const tabTextContent = document.getElementById('tabTextContent');
+        const tabFileContent = document.getElementById('tabFileContent');
+
+        // File Parsing Selectors
+        const fileDropZone = document.getElementById('fileDropZone');
+        const fileInput = document.getElementById('fileInput');
+        const parsingIndicator = document.getElementById('parsingIndicator');
+        const parsingText = document.getElementById('parsingText');
+
+        // Edit Modal Selectors
+        const editModal = document.getElementById('editModal');
+        const editInput = document.getElementById('editInput');
+        const cancelEditBtn = document.getElementById('cancelEditBtn');
+        const saveEditBtn = document.getElementById('saveEditBtn');
+        const modalCleanBtn = document.getElementById('modalCleanBtn');
+
+        // Toast Helper
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            toastMsg.textContent = message;
+            toast.classList.remove('toast-active');
+            void toast.offsetWidth;
+            toast.classList.add('toast-active');
+        }
+
+        function cleanText(text) {
+            if (!text) return '';
+            let cleaned = text;
+            cleaned = cleaned.replace(/[\u3000\t]+/g, ' ');
+            cleaned = cleaned.replace(/ +/g, ' ');
+            cleaned = cleaned.replace(/\s+([,.\?!:;])/g, '$1');
+            cleaned = cleaned.replace(/([,?!:;])(?=[^\s0-9])/g, '$1 ');
+            cleaned = cleaned.replace(/(\.)(?=[가-힣A-Za-z])/g, '$1 ');
+            return cleaned.split('\n').map(l => l.trim()).filter(l => l.length > 0).join('\n');
+        }
+
+        function escapeHtml(str) {
+            return str
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+
+        function stripHtml(html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            return tmp.textContent || tmp.innerText || "";
+        }
+
+        function splitIntoSentences(rawText) {
+            if (!rawText) return [];
+            return rawText
+                .replace(/\r\n/g, '\n')
+                .split(/\n+|(?<=[.?!])\s+(?=[가-힣A-Z0-9])/)
+                .map(line => cleanText(line).trim())
+                .filter(line => line.length >= 4);
+        }
+
+        function initTheme() {
+            if (localStorage.getItem('theme') === 'dark' || 
+                (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        }
+        initTheme();
+
+        themeToggleBtn.addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+        });
+
+        // Tabs Toggle
+        tabTextBtn.addEventListener('click', () => {
+            tabTextBtn.className = "px-4 py-2 text-sm font-semibold rounded-xl bg-primary-50 dark:bg-primary-950/60 text-primary-600 dark:text-primary-400 flex items-center gap-2 transition";
+            tabFileBtn.className = "px-4 py-2 text-sm font-semibold rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition";
+            tabTextContent.classList.remove('hidden');
+            tabFileContent.classList.add('hidden');
+        });
+
+        tabFileBtn.addEventListener('click', () => {
+            tabFileBtn.className = "px-4 py-2 text-sm font-semibold rounded-xl bg-primary-50 dark:bg-primary-950/60 text-primary-600 dark:text-primary-400 flex items-center gap-2 transition";
+            tabTextBtn.className = "px-4 py-2 text-sm font-semibold rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition";
+            tabFileContent.classList.remove('hidden');
+            tabTextContent.classList.add('hidden');
+        });
+
+        /**
+         * [9개 제한 버그 해결 핵심 알고리즘]
+         * Range를 조작할 때 기존 DOM 전체를 재렌더링하거나 innerHTML을 무차별 치환하지 않고,
+         * 해당 카드 내의 자식 노드만 정밀 치환하여 이벤트와 노드 참조가 끊기지 않게 보장합니다.
+         */
+        function createBlankFromSelection() {
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+                showToast("가릴 단어나 문맥을 먼저 꾹 눌러 선택하세요!");
+                return;
+            }
+
+            const range = selection.getRangeAt(0);
+            let container = range.commonAncestorContainer;
+            if (container.nodeType === 3) container = container.parentNode;
+
+            const textCard = container.closest('.sentence-text');
+            if (!textCard) {
+                showToast("문장 카드 안의 글자를 선택해주세요.");
+                hideSelectionTooltip();
+                return;
+            }
+
+            const sentenceId = textCard.dataset.id;
+            const selectedText = selection.toString().trim();
+            if (!selectedText) {
+                showToast("선택된 글자가 없습니다.");
+                return;
+            }
+
+            // 이미 span.cloze-blank 내부를 통째로 선택한 경우 토글
+            const existingSpan = container.closest('.cloze-blank');
+            if (existingSpan) {
+                toggleBlank(existingSpan);
+                selection.removeAllRanges();
+                hideSelectionTooltip();
+                return;
+            }
+
+            try {
+                // Range의 내용을 새 span으로 감싸기
+                const span = document.createElement('span');
+                span.className = 'cloze-blank masked';
+                span.title = '탭: 정답 보기 / 더블탭: 빈칸 해제';
+                span.textContent = selectedText;
+
+                range.deleteContents();
+                range.insertNode(span);
+                
+                // 불필요하게 쪼개진 텍스트 노드 합치기 (DOM 안정화)
+                textCard.normalize();
+
+                // 선택 해제
+                selection.removeAllRanges();
+                hideSelectionTooltip();
+
+                // 상태 동기화 및 영구 저장
+                syncCardState(textCard, sentenceId);
+                showToast(`[${selectedText}] 빈칸으로 가려졌습니다!`);
+            } catch (err) {
+                console.error("Blank masking error: ", err);
+                showToast("선택 영역을 빈칸으로 만드는 데 실패했습니다.");
+            }
+        }
+
+        function syncCardState(textCard, sentenceId) {
+            const item = sentences.find(s => s.id === sentenceId);
+            if (item) {
+                item.html = textCard.innerHTML;
+                saveStorageOnly();
+                updateCounts();
+            }
+        }
+
+        function saveStorageOnly() {
+            localStorage.setItem('memorize_sentences_master', JSON.stringify(sentences));
+        }
+
+        function updateCounts() {
+            itemCount.textContent = sentences.length;
+            const blanks = document.querySelectorAll('.cloze-blank');
+            blankCount.textContent = blanks.length;
+        }
+
+        function handleSelectionChange() {
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+                hideSelectionTooltip();
+                bottomMaskLabel.textContent = "선택 영역 가리기";
+                bottomMaskBtn.classList.remove('ring-4', 'ring-indigo-400');
+                return;
+            }
+
+            const range = selection.getRangeAt(0);
+            let container = range.commonAncestorContainer;
+            if (container.nodeType === 3) container = container.parentNode;
+
+            const textCard = container.closest('.sentence-text');
+            if (!textCard) {
+                hideSelectionTooltip();
+                return;
+            }
+
+            const selectedText = selection.toString().trim();
+            if (selectedText.length > 0) {
+                // 하단 바 강조
+                bottomMaskLabel.textContent = `"${selectedText.slice(0, 8)}${selectedText.length > 8 ? '...' : ''}" 가리기`;
+                bottomMaskBtn.classList.add('ring-4', 'ring-indigo-400');
+
+                // 아이패드 화면 상 선택 영역 머리 위에 툴팁 띄우기
+                const rect = range.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                    selectionTooltip.style.display = 'block';
+                    selectionTooltip.style.top = `${window.scrollY + rect.top}px`;
+                    selectionTooltip.style.left = `${window.scrollX + rect.left + (rect.width / 2)}px`;
+                }
+            } else {
+                hideSelectionTooltip();
+            }
+        }
+
+        function hideSelectionTooltip() {
+            selectionTooltip.style.display = 'none';
+        }
+
+        // 터치 및 마우스 선택 이벤트 리스너 등록
+        document.addEventListener('selectionchange', handleSelectionChange);
+        window.addEventListener('scroll', () => {
+            // 스크롤 시 위치 갱신
+            if (selectionTooltip.style.display === 'block') {
+                handleSelectionChange();
+            }
+        }, { passive: true });
+
+        tooltipMaskBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            createBlankFromSelection();
+        });
+
+        bottomMaskBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            createBlankFromSelection();
+        });
+
+        bottomToggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleAllBlanks();
+        });
+
+        function toggleBlank(blankEl) {
+            if (blankEl.classList.contains('masked')) {
+                blankEl.classList.remove('masked');
+                blankEl.classList.add('revealed');
+                blankEl.title = '탭: 다시 가리기 / 더블탭: 빈칸 해제';
+            } else {
+                blankEl.classList.remove('revealed');
+                blankEl.classList.add('masked');
+                blankEl.title = '탭: 정답 보기 / 더블탭: 빈칸 해제';
+            }
+
+            const textCard = blankEl.closest('.sentence-text');
+            if (textCard) {
+                syncCardState(textCard, textCard.dataset.id);
+            }
+        }
+
+        function unmaskBlank(blankEl) {
+            const text = blankEl.textContent;
+            const textCard = blankEl.closest('.sentence-text');
+            const sId = textCard ? textCard.dataset.id : null;
+            const textNode = document.createTextNode(text);
+            blankEl.parentNode.replaceChild(textNode, blankEl);
+
+            if (textCard && sId) {
+                textCard.normalize();
+                syncCardState(textCard, sId);
+                showToast(`[${text}] 빈칸이 일반 문장으로 복원되었습니다.`);
+            }
+        }
+
+        // 전체 토글 기능
+        function toggleAllBlanks() {
+            const blanks = document.querySelectorAll('.cloze-blank');
+            if (blanks.length === 0) {
+                showToast("현재 가려진 빈칸이 없습니다.");
+                return;
+            }
+
+            allRevealed = !allRevealed;
+            blanks.forEach(blank => {
+                if (allRevealed) {
+                    blank.classList.remove('masked');
+                    blank.classList.add('revealed');
+                } else {
+                    blank.classList.remove('revealed');
+                    blank.classList.add('masked');
+                }
+            });
+
+            document.querySelectorAll('.sentence-text').forEach(tDiv => {
+                const item = sentences.find(s => s.id === tDiv.dataset.id);
+                if (item) item.html = tDiv.innerHTML;
+            });
+            saveStorageOnly();
+
+            if (allRevealed) {
+                toggleIcon.className = "fa-solid fa-eye-slash text-primary-500";
+                toggleText.textContent = "빈칸 모두 가리기";
+                showToast("모든 빈칸의 정답이 공개되었습니다.");
+            } else {
+                toggleIcon.className = "fa-solid fa-eye text-primary-500";
+                toggleText.textContent = "빈칸 모두 열기";
+                showToast("모든 빈칸이 다시 가려졌습니다.");
+            }
+        }
+
+        // 태블릿 & PC 더블탭 / 클릭 이벤트 위임
+        sentenceContainer.addEventListener('click', (e) => {
+            const blank = e.target.closest('.cloze-blank');
+            if (blank) {
+                toggleBlank(blank);
+            }
+        });
+
+        // 태블릿 터치 더블탭(Double Tap) 감지
+        sentenceContainer.addEventListener('touchend', (e) => {
+            const now = Date.now();
+            const timeDiff = now - lastTouchTime;
+            lastTouchTime = now;
+
+            if (timeDiff < 320 && timeDiff > 40) {
+                // 더블탭 발생
+                const blank = e.target.closest('.cloze-blank');
+                if (blank) {
+                    e.preventDefault();
+                    unmaskBlank(blank);
+                    return;
+                }
+
+                // 일반 텍스트 위 더블탭 시
+                setTimeout(() => {
+                    const sel = window.getSelection();
+                    if (sel && sel.toString().trim()) {
+                        createBlankFromSelection();
+                    }
+                }, 50);
+            }
+        });
+
+        // PC 마우스 더블클릭
+        sentenceContainer.addEventListener('dblclick', (e) => {
+            const blank = e.target.closest('.cloze-blank');
+            if (blank) {
+                unmaskBlank(blank);
+                return;
+            }
+
+            setTimeout(() => {
+                const sel = window.getSelection();
+                if (sel && sel.toString().trim()) {
+                    createBlankFromSelection();
+                }
+            }, 30);
+        });
+
+        function render() {
+            sentenceContainer.innerHTML = '';
+
+            if (sentences.length === 0) {
+                sentenceContainer.innerHTML = `
+                    <div class="flex flex-col items-center justify-center p-12 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-2xl text-center">
+                        <i class="fa-regular fa-folder-open text-4xl text-slate-300 dark:text-slate-700 mb-3"></i>
+                        <p class="text-slate-600 dark:text-slate-400 font-medium">등록된 암기 문장이 없습니다.</p>
+                        <p class="text-xs text-slate-400 mt-1">문장을 직접 넣거나 PDF/PPTX를 등록해보세요.</p>
+                    </div>
+                `;
+                updateCounts();
+                return;
+            }
+
+            sentences.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs hover:shadow-sm transition flex flex-col md:flex-row md:items-start justify-between gap-3";
+                card.dataset.id = item.id;
+
+                const contentWrapper = document.createElement('div');
+                contentWrapper.className = "flex-grow flex items-start gap-3 w-full";
+
+                const indexBadge = document.createElement('span');
+                indexBadge.className = "w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5";
+                indexBadge.textContent = index + 1;
+
+                const textDiv = document.createElement('div');
+                textDiv.className = "sentence-text leading-relaxed text-slate-800 dark:text-slate-200 text-base sm:text-lg flex-grow";
+                textDiv.dataset.id = item.id;
+                textDiv.innerHTML = item.html;
+
+                contentWrapper.appendChild(indexBadge);
+                contentWrapper.appendChild(textDiv);
+
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = "flex items-center space-x-1.5 self-end md:self-start flex-shrink-0 pt-0.5";
+
+                const editBtn = document.createElement('button');
+                editBtn.className = "p-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs transition";
+                editBtn.title = "문장 수정";
+                editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+                editBtn.onclick = () => openEditModal(item.id);
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = "p-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs transition";
+                deleteBtn.title = "삭제";
+                deleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+                deleteBtn.onclick = () => {
+                    sentences = sentences.filter(s => s.id !== item.id);
+                    saveStorageOnly();
+                    render();
+                    showToast("문장이 삭제되었습니다.");
+                };
+
+                actionsDiv.appendChild(editBtn);
+                actionsDiv.appendChild(deleteBtn);
+
+                card.appendChild(contentWrapper);
+                card.appendChild(actionsDiv);
+                sentenceContainer.appendChild(card);
+            });
+
+            updateCounts();
+        }
+
+        ['dragenter', 'dragover'].forEach(name => {
+            fileDropZone.addEventListener(name, (e) => {
+                e.preventDefault();
+                fileDropZone.classList.add('border-primary-500', 'bg-indigo-50/20');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(name => {
+            fileDropZone.addEventListener(name, (e) => {
+                e.preventDefault();
+                fileDropZone.classList.remove('border-primary-500', 'bg-indigo-50/20');
+            });
+        });
+
+        fileDropZone.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) processFile(files[0]);
+        });
+
+        fileDropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) processFile(e.target.files[0]);
+        });
+
+        async function processFile(file) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ext !== 'pdf' && ext !== 'pptx') {
+                showToast("PDF 또는 PPTX 파일만 업로드할 수 있습니다.");
+                return;
+            }
+
+            parsingIndicator.classList.remove('hidden');
+            parsingText.textContent = `[${file.name}] 문서를 분석하고 있습니다...`;
+
+            try {
+                let extractedLines = [];
+                if (ext === 'pdf') {
+                    extractedLines = await parsePdfFile(file);
+                } else if (ext === 'pptx') {
+                    extractedLines = await parsePptxFile(file);
+                }
+
+                if (extractedLines.length === 0) {
+                    showToast("문서에서 텍스트를 추출하지 못했습니다. (이미지 전용 문서인지 확인하세요)");
+                } else {
+                    extractedLines.forEach(line => {
+                        sentences.push({
+                            id: 's_' + Math.random().toString(36).substr(2, 9),
+                            html: escapeHtml(line)
+                        });
+                    });
+                    saveStorageOnly();
+                    render();
+                    showToast(`${extractedLines.length}개의 문장을 성공적으로 추출했습니다!`);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("파일 파싱 오류: " + err.message);
+            } finally {
+                parsingIndicator.classList.add('hidden');
+                fileInput.value = '';
+            }
+        }
+
+        async function parsePdfFile(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = '';
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                fullText += pageText + '\n';
+            }
+
+            return splitIntoSentences(fullText);
+        }
+
+        async function parsePptxFile(file) {
+            const zip = await JSZip.loadAsync(file);
+            let fullText = '';
+
+            const slideFiles = Object.keys(zip.files).filter(filename => 
+                filename.startsWith('ppt/slides/slide') && filename.endsWith('.xml')
+            );
+
+            slideFiles.sort((a, b) => {
+                const numA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
+                const numB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
+                return numA - numB;
+            });
+
+            for (const slidePath of slideFiles) {
+                const xmlText = await zip.files[slidePath].async('string');
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+                const textNodes = xmlDoc.getElementsByTagName('a:t');
+                let slideText = '';
+                for (let i = 0; i < textNodes.length; i++) {
+                    slideText += textNodes[i].textContent + ' ';
+                }
+                fullText += slideText + '\n';
+            }
+
+            return splitIntoSentences(fullText);
+        }
+
+        // Add Sentences
+        addSentencesBtn.addEventListener('click', () => {
+            const text = rawInput.value.trim();
+            if (!text) {
+                showToast("문장을 먼저 입력해주세요.");
+                return;
+            }
+            const lines = splitIntoSentences(text);
+            lines.forEach(line => {
+                sentences.push({
+                    id: 's_' + Math.random().toString(36).substr(2, 9),
+                    html: escapeHtml(line)
+                });
+            });
+            saveStorageOnly();
+            render();
+            rawInput.value = '';
+            showToast(`${lines.length}개의 문장이 추가되었습니다!`);
+        });
+
+        cleanInputBtn.addEventListener('click', () => {
+            if (!rawInput.value.trim()) {
+                showToast("정리할 문장을 먼저 입력하세요.");
+                return;
+            }
+            rawInput.value = cleanText(rawInput.value);
+            showToast("띄어쓰기와 문장 부호가 정리되었습니다!");
+        });
+
+        loadSampleBtn.addEventListener('click', () => {
+            rawInput.value = SAMPLE_DATA.join('\n');
+            showToast("예시 문장이 채워졌습니다.");
+        });
+
+        clearInputBtn.addEventListener('click', () => {
+            rawInput.value = '';
+        });
+
+        clearAllSentencesBtn.addEventListener('click', () => {
+            if (sentences.length === 0) return;
+            sentences = [];
+            saveStorageOnly();
+            render();
+            showToast("모든 문장이 삭제되었습니다.");
+        });
+
+        // Sorting & Shuffle
+        sortSelect.addEventListener('change', (e) => {
+            const mode = e.target.value;
+            if (mode === 'asc') {
+                sentences.sort((a, b) => stripHtml(a.html).localeCompare(stripHtml(b.html), 'ko'));
+            } else if (mode === 'desc') {
+                sentences.sort((a, b) => stripHtml(b.html).localeCompare(stripHtml(a.html), 'ko'));
+            } else if (mode === 'length-asc') {
+                sentences.sort((a, b) => stripHtml(a.html).length - stripHtml(b.html).length);
+            } else if (mode === 'length-desc') {
+                sentences.sort((a, b) => stripHtml(b.html).length - stripHtml(a.html).length);
+            }
+            saveStorageOnly();
+            render();
+            showToast("목록이 정렬되었습니다.");
+        });
+
+        shuffleBtn.addEventListener('click', () => {
+            if (sentences.length <= 1) {
+                showToast("셔플할 문장이 2개 이상 필요합니다.");
+                return;
+            }
+            for (let i = sentences.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [sentences[i], sentences[j]] = [sentences[j], sentences[i]];
+            }
+            saveStorageOnly();
+            render();
+            showToast("문장들이 무작위로 섞였습니다! (실전 테스트)");
+        });
+
+        // Edit Modal Handlers
+        function openEditModal(id) {
+            editingId = id;
+            const item = sentences.find(s => s.id === id);
+            if (!item) return;
+            editInput.value = stripHtml(item.html);
+            editModal.classList.remove('hidden');
+            editInput.focus();
+        }
+
+        cancelEditBtn.addEventListener('click', () => {
+            editModal.classList.add('hidden');
+            editingId = null;
+        });
+
+        modalCleanBtn.addEventListener('click', () => {
+            editInput.value = cleanText(editInput.value);
+            showToast("수정창 텍스트가 정제되었습니다.");
+        });
+
+        saveEditBtn.addEventListener('click', () => {
+            if (!editingId) return;
+            const item = sentences.find(s => s.id === editingId);
+            if (item) {
+                const cleaned = cleanText(editInput.value.trim());
+                if (!cleaned) {
+                    showToast("내용을 입력해주세요.");
+                    return;
+                }
+                item.html = escapeHtml(cleaned);
+                saveStorageOnly();
+                render();
+                showToast("문장 수정이 완료되었습니다.");
+            }
+            editModal.classList.add('hidden');
+            editingId = null;
+        });
+
+        toggleAllBlanksBtn.addEventListener('click', toggleAllBlanks);
+
+        // PC 단축키 핸들러
+        window.addEventListener('keydown', (e) => {
+            const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+            const isAlt = e.altKey;
+
+            if (((isCtrlOrMeta && e.key.toLowerCase() === 'b') || (isAlt && e.key.toLowerCase() === 'b')) && !e.target.matches('textarea, input')) {
+                e.preventDefault();
+                createBlankFromSelection();
+                return;
+            }
+
+            if ((isAlt && e.key.toLowerCase() === 'a') || (isCtrlOrMeta && e.key === '/')) {
+                e.preventDefault();
+                toggleAllBlanks();
+                return;
+            }
+
+            if (e.key === 'Escape' && !editModal.classList.contains('hidden')) {
+                editModal.classList.add('hidden');
+                editingId = null;
+            }
+        });
+
+        function loadStorage() {
+            try {
+                const saved = localStorage.getItem('memorize_sentences_master');
+                if (saved) {
+                    sentences = JSON.parse(saved);
+                } else {
+                    sentences = SAMPLE_DATA.map(text => ({
+                        id: 's_' + Math.random().toString(36).substr(2, 9),
+                        html: escapeHtml(text)
+                    }));
+                }
+            } catch (e) {
+                sentences = [];
+            }
+            render();
+        }
+
+        loadStorage();
+    </script>
+</body>
+</html>
